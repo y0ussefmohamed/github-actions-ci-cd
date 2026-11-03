@@ -1,9 +1,10 @@
 {
   "scripts": {
-  "dev": "tsx src/app.ts",
-  "build": "tsc",
-  "start": "node app.js"
-},
+    "dev": "tsx src/app.ts",
+    "build": "tsc",
+    "start": "node app.js",
+    "test": "tsx --no-warnings --test src/app.test.ts"
+  },
   "devDependencies": {
     "@types/node": "^25.6.0",
     "tsx": "^4.21.0",

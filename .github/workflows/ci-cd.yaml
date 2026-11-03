@@ -1,5 +1,6 @@
 name: HTTP APP workflow
 
+# This is the trigger that tells gitHub when to run this workflow automatically
 on:
   push:
     branches:
@@ -7,34 +8,36 @@ on:
       - master
       - "feature/**"
 
-  # pull_request:
-  #   branches:
-  #     - main
-
+  pull_request:
+    branches:
+      - main
 
 jobs:
+  # JOB 1 (CI): Builds and tests the code
   test_and_build: 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest # Spins up a fresh, empty Ubuntu Linux virtual machine (Runner)
 
     steps:
       - name: clone code 
-        uses: actions/checkout@v5
+        uses: actions/checkout@v5 # Put my code on the 'runs-on' machine
 
       - name: set up node js environment
-        uses: actions/setup-node@v6
-        with:
+        uses: actions/setup-node@v6 # Install node.js for me
+        with: # passes settings/inputs to the plugin above
           node-version: 24
 
       - name: install node js packages
-        run: npm install
+        run: npm install # "run" executes a normal terminal command inside the virtual machine
 
-
-      # - name: run test 
-      #   run: npm run test
+      
+      - name: run test # If something went wrong here the whole pipeline will stop
+        run: npm run test
 
       - name: compile source code
         run: npm run build
 
+      # Each job runs on a separate machine that gets destroyed when the job ends.
+      # The action "upload-artifact" saves the built files (dist + package.json) on GitHub so the next job can use them.
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -44,31 +47,4 @@ jobs:
             package.json
 
 
-  deploy:
-    runs-on: ubuntu-latest
-    needs: test_and_build
-    steps:
-      - name: download artifacts
-        uses: actions/download-artifact@v4 
-        with: 
-          name: source-code
-          path: ./
-
-
-      - name: Deploy to Staging server
-        uses: easingthemes/ssh-deploy@main
-        with:
-          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
-          ARGS: "-rlgoDzvc -i"
-          SOURCE: "dist/ package.json"
-          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
-          REMOTE_USER: ${{ secrets.REMOTE_USER }}
-          TARGET: ${{ secrets.REMOTE_TARGET }}
-          # EXCLUDE: "/dist/, /node_modules/"
-          SCRIPT_BEFORE: |
-            whoami
-            ls -al
-          SCRIPT_AFTER: |
-
-            cd ${{ secrets.REMOTE_TARGET }}
-            pm2 restart http-app || pm2 start npm --name http-app -- start
+  
