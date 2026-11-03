@@ -1,6 +1,6 @@
 name: HTTP APP workflow
 
-# This is the trigger that tells gitHub when to run this workflow automatically
+# This is the trigger that tells GitHub when to run this workflow automatically
 on:
   push:
     branches:
@@ -28,7 +28,6 @@ jobs:
 
       - name: install node js packages
         run: npm install # "run" executes a normal terminal command inside the virtual machine
-
       
       - name: run test # If something went wrong here the whole pipeline will stop
         run: npm run test
@@ -39,7 +38,7 @@ jobs:
       # Each job runs on a separate machine that gets destroyed when the job ends.
       # The action "upload-artifact" saves the built files (dist + package.json) on GitHub so the next job can use them.
       - name: upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: source-code
           path: |
@@ -47,4 +46,49 @@ jobs:
             package.json
 
 
-  
+  # JOB 2 (CD): Sends the built code to the live server
+  deploy:
+    runs-on: ubuntu-latest
+
+    # Jobs runs in parallel by default!
+    # "needs" forces "deploy" to WAIT until "test_and_build" finishes with no errors.
+    needs: test_and_build
+    steps:
+      # Since this is a brand-new virtual machine, grab the "source-code" files saved in Job 1
+      - name: download artifacts
+        uses: actions/download-artifact@v8 
+        with: 
+          name: source-code
+          path: ./
+
+      # Sets up a free mock staging server (SSH + PM2) since we don't have a paid AWS EC2 server
+      - name: prepare staging server
+        run: |
+          sudo service ssh start
+          mkdir -p ~/.ssh ${{ secrets.REMOTE_TARGET }}
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > /tmp/key && chmod 600 /tmp/key
+          ssh-keygen -y -f /tmp/key >> ~/.ssh/authorized_keys && rm /tmp/key
+          chmod 600 ~/.ssh/authorized_keys
+          sudo npm install -g pm2
+
+      # Connects to our server via SSH and copies the files over
+      - name: Deploy to Staging server
+        uses: easingthemes/ssh-deploy@main
+        with:
+          # ${{ secrets.NAME }} safely reads private keys/IPs stored in GitHub Settings -> Secrets
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          ARGS: "-rlgoDzvc -i"
+          SOURCE: "dist/ package.json"
+          REMOTE_HOST: ${{ secrets.REMOTE_HOST }}
+          REMOTE_USER: ${{ secrets.REMOTE_USER }}
+          TARGET: ${{ secrets.REMOTE_TARGET }}
+          # EXCLUDE: "/dist/, /node_modules/"
+          SCRIPT_BEFORE: | # Terminal commands to run on the server BEFORE copying files
+            whoami
+            ls -al
+          SCRIPT_AFTER: | # Terminal commands to run on the server AFTER copying files
+            cd ${{ secrets.REMOTE_TARGET }}
+            # Restart the app if it's already running; if not (||), start it for the first time
+            pm2 restart http-app || pm2 start npm --name http-app -- start
+            sleep 2
+            curl -i http://localhost:3000/
